@@ -1,0 +1,13 @@
+outputs/
+backups/
+__pycache__/
+*.pyc
+本地配置.env
+*.pt.bak
+docs/FLOW-AUDIT-20261006.md
+docs/_code_inventory.json
+docs/VARIANT-AB-TEST.md
+refs/
+chip_samples__20260128/
+docs/OPENSOURCE-EXCLUDE.md
+docs/VARIANT-FITDIR-TEST.md

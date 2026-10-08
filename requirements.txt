@@ -1,0 +1,5 @@
+# 仅这三个依赖；opencv 必须是 contrib 版（cv2.ximgproc.thinning 不在主包里）
+numpy
+opencv-contrib-python
+# torch 建议 CPU 版：pip install torch --index-url https://download.pytorch.org/whl/cpu
+torch

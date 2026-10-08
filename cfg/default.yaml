@@ -1,0 +1,84 @@
+# chip_defect_classify — 唯一参数源（cfg ✓）
+# 定格依据：./versions/V-20261005-003-pipeline-algorithm-versions.md
+# 改动任何参数都会改变判定结果 ✓ 请连同版本号一起记录 ✓
+meta:
+  version: "V-20261005-003"
+  frozen_at: "2026-10-05"
+  note: "五步：候选焊点 -> CNN 筛选 -> U-Net 飞线掩膜 -> 掩膜处理分类 -> 再处理+直度判定"
+
+io:
+  image_glob: "*.jpg"          # 客户输入：一个目录下的原图（灰度 JPEG ✓）
+  mask_mode: "auto"           # auto = 现场生成板框掩膜（CV 轮廓法 ✓）｜ file = 用 provided_mask_dir
+  provided_mask_dir: ""
+  save_intermediate: true      # 每步中间图存到 outputs/<run>/figures/
+  png_lossless: true           # 出图一律 PNG 无损 ✓
+
+s1_candidates:                 # 焊点候选（S1–S6 + 弱反差分支）
+  D_PCT: 96
+  KCLOSE: 41
+  MASK_ERODE: 4
+  RE: 2.0
+  DT_MIN: 1.5
+  RMIN: 2.5
+  RMAX: 8.0
+  SEP: 9.0
+  RING_K: 94                   # 内外圈判据（补边距离 ≤ 94 → 外圈 ✓）
+  PREFILTER: "pre_median"
+  WEAK_MF_T: 90.0              # 弱反差分支
+  WEAK_DEDUP: 10.0
+  WEAK_WIN_BIG: 25
+  WEAK_WIN_SMALL: 7
+  use_union: true              # 候选 = 基础 ∪ 弱反差（1326 + 3 = 1329 ✓ 与训练集同口径 ✓）
+
+s2_cnn:                        # CNN 筛选焊点（S7/S8/S9 全部停用 ✓）
+  arch: "res2_deep"
+  act: "relu"
+  seeds: [0, 1, 2, 3, 4]
+  folds: [1, 2, 3, 4, 5]
+  thr: 0.6                     # 判定：5 种子均值 >= thr → 焊点 ✓
+  weights_dir: "models/cnn"
+  batch: 512
+  device: "auto"               # auto -> cuda 可用则 cuda，否则 cpu
+
+s3_unet_mask:                  # 飞线掩膜（并集：TTA + v13 + v18 ✓ 98.27% / 6px / 0.10）
+  keep_members: ["TTA", "v13", "v18"]
+  weights:                     # 相对 models/unet/
+    TTA: ["chan_01_原图.pt", "chan_02_分位拉伸.pt", "chan_03_CLAHE.pt", "chan_04_自适二值b51.pt",
+          "chan_05_Canny.pt", "chan_06_局部反差s8.pt", "chan_07_黑帽15.pt", "chan_08_USM.pt",
+          "chan_09_gamma0.6.pt"]
+    v13: ["unet_v13_raw_overlap50.pt"]
+    v18: ["unet_v18_conv3_sig_zscore.pt"]
+  tile: 192
+  stride: 96
+  tta_views: 4                 # TTA：每模型 4 种视图（原图 / 水平翻 / 垂直翻 / 双翻 ✓）
+  post: "raw_overlap50"        # 阈值化与拼接口径（与训练脚本一致 ✓）
+
+s4_classify:                   # 掩膜处理与分类（术语口径 ✓）
+  min_blob_px: 50              # 除杂：< 50px 不计为飞线
+  merge_tol: 0                 # 重合判据 TOL = 0
+  solder_pick: "nearest_to_endpoint"   # 焊点归属：只看离本端头最近的焊点（逐条独立 ✓）
+  terms:
+    two_solder: "合格飞线（两端各在一焊座上 ✓）"
+    one_solder: "断联的飞线（不合格 ✓ 它依然是飞线 ✓）"
+    zero_solder: "非飞线"
+    many_solder: "多条飞线粘连"
+
+s5_straightness:               # 掩膜再处理 + 直度判定
+  split_long_axis_min: 20      # 拆分：长轴 < 20px 删
+  disk_del_r: 9.92             # 删盘半径 = 平均 4.92 + 5
+  extend_max: 14.92            # 延长上限（冻结 ✓）
+  fill_order: "extend_then_close"   # 顺序 B：先延长 → 再闭运算 ✓
+  close_r: 13                  # 闭运算核半径（13px ✓）
+  cut_r_auto: true             # 剪端半径自适应 min(9.92, 0.30*d)
+  cut_r: 9.92
+  metric_min_pts: 8            # 度量门槛
+  order_path: "geodesic"       # 骨架有序路径 = 最长测地线（两次 BFS ✓）
+  jitter_max: 7.8088           # 直度判据 ①（px ✓ 零误报口径 ✓）
+  arc_chord_max: 1.0062        # 直度判据 ②
+  verdict: "jitter>1 or arc>2 -> 弯曲不合格"
+
+train:                         # 训练接口保留但不开启 ✓
+  enabled: false
+  cnn_script: "train/cnn_train.py"
+  unet_script: "train/unet_train.py"
+  note: "默认复用 models/ 内权重 ✓ 只有显式 --enable-training 才会进入训练 ✓"

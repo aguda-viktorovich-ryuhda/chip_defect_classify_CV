@@ -1,0 +1,157 @@
+{
+ "meta": {
+  "version": "V-20261005-003",
+  "frozen_at": "2026-10-05",
+  "note": "五步：候选焊点 -> CNN 筛选 -> U-Net 飞线掩膜 -> 掩膜处理分类 -> 再处理+直度判定"
+ },
+ "io": {
+  "image_glob": "*.jpg",
+  "mask_mode": "auto",
+  "provided_mask_dir": "",
+  "save_intermediate": true,
+  "png_lossless": true,
+  "input_dir": "chip_samples__20260128",
+  "input_note": "客户原图目录（相对软件根）✓ 只读使用 ✓ 不写入",
+  "out_root": "outputs",
+  "cli_priority": "命令行 --input/--out/--tag 优先于 cfg（客户可随时指向自己的图片目录）",
+  "input_layout": "支持 A) <输入>/<分组>/<图片>  B) 扁平 <输入>/<图片>",
+  "readonly": "输入目录只读：软件绝不写入、不改名、不移动客户图片"
+ },
+ "s1_candidates": {
+  "D_PCT": 96,
+  "KCLOSE": 41,
+  "MASK_ERODE": 4,
+  "RE": 2.0,
+  "DT_MIN": 1.5,
+  "RMIN": 2.5,
+  "RMAX": 8.0,
+  "SEP": 9.0,
+  "RING_K": 94,
+  "PREFILTER": "pre_median",
+  "WEAK_MF_T": 90.0,
+  "WEAK_DEDUP": 10.0,
+  "WEAK_WIN_BIG": 25,
+  "WEAK_WIN_SMALL": 7,
+  "use_union": true
+ },
+ "s2_cnn": {
+  "arch": "res2_deep",
+  "act": "relu",
+  "seeds": [
+   0,
+   1,
+   2,
+   3,
+   4
+  ],
+  "folds": [
+   1,
+   2,
+   3,
+   4,
+   5
+  ],
+  "thr": 0.6,
+  "weights_dir": "models/cnn",
+  "batch": 512,
+  "device": "auto",
+  "aggregate": "fold5",
+  "aggregate_new_board": "all25",
+  "fold_map": {}
+ },
+ "s3_unet_mask": {
+  "keep_members": [
+   "TTA",
+   "v13",
+   "v18"
+  ],
+  "weights": {
+   "TTA": [
+    {
+     "file": "unet_v3_unet8.pt",
+     "mode": "raw"
+    },
+    {
+     "file": "unet_v6_A_pct.pt",
+     "mode": "pct"
+    },
+    {
+     "file": "unet_v6_B_clahe.pt",
+     "mode": "clahe"
+    },
+    {
+     "file": "unet_v10_cldice3.pt",
+     "mode": "pct"
+    },
+    {
+     "file": "unet_v11_raw_cldice.pt",
+     "mode": "raw"
+    }
+   ],
+   "v13": [
+    {
+     "file": "unet_v13_raw_overlap50.pt",
+     "mode": "raw"
+    }
+   ],
+   "v18": [
+    {
+     "file": "unet_v18_conv3_sig_zscore.pt",
+     "mode": "zscore"
+    }
+   ]
+  },
+  "tile": 192,
+  "stride": 96,
+  "tta_views": 4,
+  "post": "raw_overlap50",
+  "ckpt_format": "dict_sd",
+  "views": [
+   "id",
+   "fliplr",
+   "flipud",
+   "rot180"
+  ],
+  "n_weights_total": 7
+ },
+ "s4_classify": {
+  "min_blob_px": 50,
+  "merge_tol": 0,
+  "solder_pick": "nearest_to_endpoint",
+  "terms": {
+   "two_solder": "合格飞线（两端各在一焊座上）",
+   "one_solder": "断联的飞线（不合格，它依然是飞线）",
+   "zero_solder": "非飞线",
+   "many_solder": "多条飞线粘连"
+  },
+  "bare_pad_rule": {
+   "enabled": true,
+   "criterion": "jia_骨架长小于20或L小于1.5",
+   "desc": "只认到 1 个焊点且（骨架长 < 20px 或 最小外接矩形长宽比 < 1.5）的连通域 = 裸焊盘，剔除出飞线计数",
+   "evidence": "2026-10-06 实测 12 个单焊点块：裸焊盘 5 个（骨架 1-26px，L/W 1.00-1.79，圆度 0.71-1.03）| 断联飞线 7 个（骨架 182-417px，L/W 5.70-24.12，圆度 0.049-0.096）；甲/乙/丙 三判据等价",
+   "acceptance": "启用后 10 板四项计数不变：合格 117 / 断联 7 / 焊错 0 / 噪音 5"
+  },
+  "report_bare_pad_count": true,
+  "report_bare_pad_note": "裸焊盘剔除后仍需在判定报告中单独计数体现（使用者 2026-10-06 要求）"
+ },
+ "s5_straightness": {
+  "split_long_axis_min": 20,
+  "disk_del_r": 9.92,
+  "extend_max": 14.92,
+  "fill_order": "extend_then_close",
+  "close_r": 13,
+  "cut_r_auto": true,
+  "cut_r": 9.92,
+  "metric_min_pts": 8,
+  "order_path": "geodesic",
+  "jitter_max": 7.8088,
+  "arc_chord_max": 1.0062,
+  "verdict": "jitter>jitter_max or arc_chord>arc_chord_max -> 弯曲不合格"
+ },
+ "train": {
+  "enabled": false,
+  "cnn_script": "train/cnn_train.py",
+  "unet_script": "train/unet_train.py",
+  "note": "默认复用 models/ 内权重，只有显式 --enable-training 才会进入训练"
+ }
+}
